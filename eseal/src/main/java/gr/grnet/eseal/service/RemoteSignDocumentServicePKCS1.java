@@ -122,7 +122,8 @@ public class RemoteSignDocumentServicePKCS1 implements SignDocumentService {
         // cannot be built due to missing AIA / OCSP info
         ListCertificateSource lotl =
             lotlBean.getLotlValidator().getCertificateVerifier().getTrustedCertSources();
-        CertificateSource[] lotlAsArray = lotl.getSources().stream().toArray(CertificateSource[]::new);
+        CertificateSource[] lotlAsArray =
+            lotl.getSources().stream().toArray(CertificateSource[]::new);
         certVerifier.addTrustedCertSources(lotlAsArray);
 
         // CRLSource
