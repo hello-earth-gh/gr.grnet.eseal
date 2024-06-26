@@ -82,7 +82,7 @@ public class DocumentSignController {
         "document_name", signDocumentDetachedRequestDto.getToSignDocument().getName());
 
     RemoteProviderCertificatesResponse userCertificates =
-        SignDocumentService.getUserCertificates(
+        signDocumentServiceFactory.wrapGetUserCertificates(
             signDocumentDetachedRequestDto.getUsername(),
             signDocumentDetachedRequestDto.getPassword(),
             this.remoteProviderProperties.getEndpoint(),

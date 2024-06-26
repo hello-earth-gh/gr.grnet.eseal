@@ -54,6 +54,15 @@ public class RemoteSignDocumentServicePKCS1 implements SignDocumentService {
   @Value("${eseal.manual.truststore.enabled:false}")
   private boolean trustedCertSourcesBeanEnabled;
 
+  @Value("${eseal.remote.provider.allow-expired:false}")
+  private Boolean allowSignWithExpired;
+
+  @Value("${eseal.remote.provider.sign-not-yet-valid:false}")
+  private Boolean allowSignWithNotYetValid;
+
+  @Value("${eseal.remote.provider.demo-mode:false}")
+  private Boolean demoMode;
+
   private static final Logger LOGGER =
       LoggerFactory.getLogger(RemoteSignDocumentServicePKCS1.class);
 
@@ -61,6 +70,13 @@ public class RemoteSignDocumentServicePKCS1 implements SignDocumentService {
   private final TSASourceRegistry tsaSourceRegistry;
   private final RemoteProviderProperties remoteProviderProperties;
   private final RemoteProviderSignBuffer remoteProviderSignBuffer;
+
+  //  @Autowired
+  //  @Qualifier("trustAllVerifier")
+  //  private HostnameVerifier trustAllHostnameVerifier;
+
+  @Value("${eseal.downgrade:false}")
+  private Boolean downgradeSecurityMeasures;
 
   @Autowired
   public RemoteSignDocumentServicePKCS1(
@@ -84,7 +100,10 @@ public class RemoteSignDocumentServicePKCS1 implements SignDocumentService {
     while (retryVisibleSignature) {
       try {
         PAdESSignatureParameters padesSignatureParameters = new PAdESSignatureParameters();
-        padesSignatureParameters.setSignatureLevel(SignatureLevel.PAdES_BASELINE_LTA);
+        padesSignatureParameters.setSignatureLevel(
+            !downgradeSecurityMeasures
+                ? SignatureLevel.PAdES_BASELINE_LTA
+                : SignatureLevel.PAdES_BASELINE_LT);
         padesSignatureParameters.setDigestAlgorithm(DigestAlgorithm.SHA256);
         padesSignatureParameters.setContentSize(3 * 9472);
         BLevelParameters blevelParameters = new BLevelParameters();
@@ -92,6 +111,11 @@ public class RemoteSignDocumentServicePKCS1 implements SignDocumentService {
         padesSignatureParameters.setBLevelParams(blevelParameters);
         padesSignatureParameters.setSigningCertificate(signDocumentDto.getCertificateList().get(0));
         padesSignatureParameters.setCertificateChain(signDocumentDto.getCertificateList());
+        padesSignatureParameters.setSignWithExpiredCertificate(allowSignWithExpired);
+        LOGGER.info("set allowSignWithExpired = " + allowSignWithExpired);
+        padesSignatureParameters.setSignWithNotYetValidCertificate(allowSignWithNotYetValid);
+        LOGGER.info("set allowSignWithNotYetValid = " + allowSignWithNotYetValid);
+
         if (signDocumentDto.getImageVisibility()) {
           SignatureImageParameters signatureImageParameters =
               getSignatureImageParameters(
@@ -144,12 +168,16 @@ public class RemoteSignDocumentServicePKCS1 implements SignDocumentService {
         // AIA Source
         certVerifier.setAIASource(new DefaultAIASource(this.commonsDataLoaderWithCustomTimeouts()));
 
-        certVerifier.setAlertOnMissingRevocationData(new ExceptionOnStatusAlert());
+        certVerifier.setAlertOnMissingRevocationData(
+            downgradeSecurityMeasures ? new LogOnStatusAlert() : new ExceptionOnStatusAlert());
         certVerifier.setAlertOnUncoveredPOE(new LogOnStatusAlert());
         certVerifier.setAlertOnRevokedCertificate(new ExceptionOnStatusAlert());
         certVerifier.setAlertOnInvalidTimestamp(new ExceptionOnStatusAlert());
         certVerifier.setAlertOnNoRevocationAfterBestSignatureTime(new LogOnStatusAlert());
-        certVerifier.setAlertOnExpiredSignature(new ExceptionOnStatusAlert());
+
+        if (allowSignWithExpired) {
+          certVerifier.setAlertOnExpiredSignature(new LogOnStatusAlert());
+        }
 
         // since DSS 5.11 it is required to set the factory, instead of the strategy
         // in order to circumvent concurrency issues
@@ -182,21 +210,28 @@ public class RemoteSignDocumentServicePKCS1 implements SignDocumentService {
                 "%s://%s/%s",
                 "https", remoteProviderProperties.getEndpoint(), Path.REMOTE_SIGNING_BUFFER));
 
-        RemoteProviderSignBufferResponse response =
-            remoteProviderSignBuffer.executeRemoteProviderRequestResponse(
-                request,
-                RemoteProviderSignBufferResponse.class,
-                SignDocumentService.errorResponseFunction());
+        if (!demoMode) {
+          RemoteProviderSignBufferResponse response =
+              remoteProviderSignBuffer.executeRemoteProviderRequestResponse(
+                  request,
+                  RemoteProviderSignBufferResponse.class,
+                  SignDocumentService.errorResponseFunction());
 
-        SignatureValue signatureValue =
-            new SignatureValue(
-                SignatureAlgorithm.RSA_SHA256, Utils.fromBase64(response.getSignature()));
+          SignatureValue signatureValue =
+              new SignatureValue(
+                  SignatureAlgorithm.RSA_SHA256, Utils.fromBase64(response.getSignature()));
 
-        DSSDocument signedDocument =
-            padesService.signDocument(toBeSignedDocument, padesSignatureParameters, signatureValue);
+          DSSDocument signedDocument =
+              padesService.signDocument(
+                  toBeSignedDocument, padesSignatureParameters, signatureValue);
 
-        retryVisibleSignature = false;
-        base64SignedDocument = Utils.toBase64(Utils.toByteArray(signedDocument.openStream()));
+          retryVisibleSignature = false;
+          base64SignedDocument = Utils.toBase64(Utils.toByteArray(signedDocument.openStream()));
+        } else {
+          // just bypass all talking to signature provider and return the input document
+          retryVisibleSignature = false;
+          base64SignedDocument = signDocumentDto.getBytes();
+        }
 
       } catch (Exception e) {
         LOGGER.error(
@@ -228,6 +263,9 @@ public class RemoteSignDocumentServicePKCS1 implements SignDocumentService {
     cdl.setTimeoutConnection(this.remoteProviderProperties.getConnectTimeout());
     cdl.setTimeoutSocket(this.remoteProviderProperties.getSocketConnectTimeout());
     cdl.setTimeoutConnectionRequest(this.remoteProviderProperties.getRequestConnectTimeout());
+    //    if (trustAllClr) {
+    //      cdl.setHostnameVerifier(trustAllHostnameVerifier);
+    //    }
     return cdl;
   }
 }

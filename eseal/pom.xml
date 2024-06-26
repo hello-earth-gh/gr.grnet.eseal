@@ -158,6 +158,9 @@
              <remote.provider.host>rsign-api.harica.gr</remote.provider.host>
              <retry.enabled>true</retry.enabled>
              <server.port>8080</server.port>
+             <allow-expired>false</allow-expired>
+             <demo-mode>false</demo-mode>
+             <eseal-downgrade>false</eseal-downgrade>
           </properties>
        </profile>
        <profile>
@@ -166,6 +169,9 @@
              <remote.provider.host>rsign-api-dev.harica.gr</remote.provider.host>
              <retry.enabled>false</retry.enabled>
              <server.port>9001</server.port>
+             <allow-expired>true</allow-expired>
+             <demo-mode>false</demo-mode>
+             <eseal-downgrade>true</eseal-downgrade>
           </properties>
        </profile>
     </profiles>
